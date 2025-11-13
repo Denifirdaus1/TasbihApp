@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lottie/lottie.dart';
 
 import '../../../core/notifications/notification_service.dart';
 import '../../../core/widgets/arabic_text.dart';
@@ -13,12 +12,7 @@ import '../../recommendations/presentation/mood_selector.dart';
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
-  static const _lottieUrls = [
-    'https://assets9.lottiefiles.com/packages/lf20_jcikwtux.json',
-    'https://assets6.lottiefiles.com/packages/lf20_nysiytpa.json',
-    'https://assets4.lottiefiles.com/packages/lf20_jcikwtux.json',
-  ];
-
+  
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileFutureProvider);
@@ -43,6 +37,7 @@ class DashboardScreen extends ConsumerWidget {
                 level: data.currentTreeLevel,
                 points: data.totalPoints,
                 username: data.username ?? 'Pengguna',
+                avatarUrl: data.avatarUrlWithCache,
               ),
             ),
             const SizedBox(height: 24),
@@ -130,16 +125,16 @@ class _ProfileHeader extends StatelessWidget {
     required this.level,
     required this.points,
     required this.username,
+    this.avatarUrl,
   });
 
   final int level;
   final int points;
   final String username;
+  final String? avatarUrl;
 
   @override
   Widget build(BuildContext context) {
-    final lottieUrl =
-        DashboardScreen._lottieUrls[level % DashboardScreen._lottieUrls.length];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -148,7 +143,18 @@ class _ProfileHeader extends StatelessWidget {
             SizedBox(
               height: 120,
               width: 120,
-              child: Lottie.network(lottieUrl),
+              child: CircleAvatar(
+                radius: 60,
+                backgroundColor: Colors.green[100],
+                backgroundImage: avatarUrl?.isNotEmpty == true ? NetworkImage(avatarUrl!) : null,
+                child: avatarUrl == null
+                    ? Icon(
+                        Icons.nature_people,
+                        size: 50,
+                        color: Colors.green[700],
+                      )
+                    : null,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(

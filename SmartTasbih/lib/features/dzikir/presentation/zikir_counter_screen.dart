@@ -30,14 +30,6 @@ class _ZikirCounterScreenState extends ConsumerState<ZikirCounterScreen>
           .increment(fromVolumeButton: true);
       _triggerHaptic();
     });
-
-    ref.listen<ZikirCounterState>(
-      zikirCounterControllerProvider,
-      (previous, next) {
-        if (previous?.displayedCount == next.displayedCount) return;
-        _triggerHaptic(strong: next.displayedCount % 33 == 0);
-      },
-    );
   }
 
   void _triggerHaptic({bool strong = false}) {
@@ -72,6 +64,15 @@ class _ZikirCounterScreenState extends ConsumerState<ZikirCounterScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(zikirCounterControllerProvider);
     final collections = ref.watch(userZikirCollectionsProvider);
+
+    // Listen for state changes to trigger haptic feedback
+    ref.listen<ZikirCounterState>(
+      zikirCounterControllerProvider,
+      (previous, next) {
+        if (previous?.displayedCount == next.displayedCount) return;
+        _triggerHaptic(strong: next.displayedCount % 33 == 0);
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(

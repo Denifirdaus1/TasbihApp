@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/profile.dart';
@@ -38,5 +39,39 @@ class ProfileRepository {
     return _client.from('profiles').update({
       'current_tree_level': level,
     }).eq('id', userId);
+  }
+
+  Future<void> updateUsername(String userId, String username) {
+    return _client.from('profiles').update({
+      'username': username,
+    }).eq('id', userId);
+  }
+
+  Future<void> updateAvatarUrl(String userId, String avatarUrl) {
+    return _client.from('profiles').update({
+      'avatar_url': avatarUrl,
+    }).eq('id', userId);
+  }
+
+  Future<String> uploadProfileImage(String userId, String filePath) async {
+    final file = File(filePath);
+    final fileExt = filePath.split('.').last;
+    final fileName = '$userId/profile.$fileExt';
+
+    await _client.storage.from('profiles').upload(
+      fileName,
+      file,
+      fileOptions: FileOptions(
+        upsert: true,
+      ),
+    );
+
+    // Get public URL with auto-compression
+    final publicUrl = _client.storage.from('profiles').getPublicUrl(fileName);
+
+    // Add image transformation parameters for auto-compression and optimization
+    // Add timestamp for cache-busting to force refresh
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return '$publicUrl?width=400&height=400&quality=80&format=webp&t=$timestamp';
   }
 }

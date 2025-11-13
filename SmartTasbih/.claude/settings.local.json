@@ -1,6 +1,12 @@
 {
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "supabase"
+    "supabase",
+    "Context7"
   ],
-  "enableAllProjectMcpServers": true
+  "permissions": {
+    "allow": [
+      "Selalu gunakan mcp supabase untuk database dan gunakan context7 untuk mencari docs problem solve"
+    ]
+  }
 }
