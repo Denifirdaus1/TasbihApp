@@ -101,6 +101,42 @@ class TasbihCounterController extends StateNotifier<CounterState> {
     await _syncToDatabase(forceCount: count);
   }
 
+  Future<void> updateTarget(int targetCount) async {
+    if (targetCount <= 0) return;
+
+    final isCompleted = state.displayCount >= targetCount;
+
+    state = state.copyWith(
+      targetCount: targetCount,
+      isCompleted: isCompleted,
+      isSyncing: true,
+    );
+
+    try {
+      final session = await _repository.getOrCreateSession(
+        userId: _sessionParams.userId,
+        collectionId: _sessionParams.collectionId,
+        dhikrItemId: _sessionParams.dhikrItemId,
+        targetCount: targetCount,
+        sessionDate: _sessionParams.sessionDate,
+      );
+
+      await _repository.updateSessionTarget(
+        session.id,
+        targetCount,
+        currentCount: state.displayCount,
+      );
+
+      if (!_disposed) {
+        state = state.copyWith(isSyncing: false);
+      }
+    } catch (e) {
+      if (!_disposed) {
+        state = state.copyWith(isSyncing: false);
+      }
+    }
+  }
+
   Future<void> reset() async {
     state = state.copyWith(
       displayCount: 0,
@@ -124,7 +160,8 @@ class TasbihCounterController extends StateNotifier<CounterState> {
         userId: _sessionParams.userId,
         collectionId: _sessionParams.collectionId,
         dhikrItemId: _sessionParams.dhikrItemId,
-        targetCount: _sessionParams.targetCount,
+        targetCount: state.targetCount,
+        sessionDate: _sessionParams.sessionDate,
       );
 
       final newCount = forceCount ?? state.displayCount;

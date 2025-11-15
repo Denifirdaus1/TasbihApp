@@ -610,63 +610,336 @@ class _DailyTrend extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (trend.isEmpty) {
-      return Text(
-        'Belum ada aktivitas minggu ini.',
-        style: theme.textTheme.bodyMedium,
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.bar_chart_outlined,
+                size: 48,
+                color: theme.colorScheme.outline.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Belum ada aktivitas minggu ini',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
+                ),
+              ),
+              Text(
+                'Mulai dzikir untuk melihat progres Anda',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
-    final maxValue = trend.fold<int>(0, (previousValue, element) {
-      if (element.value > previousValue) {
-        return element.value;
-      }
-      return previousValue;
-    });
+    // Get last 7 days data
+    final lastSevenDays = _getLastSevenDaysData(trend);
+    final totalCount = lastSevenDays.fold<int>(0, (sum, day) => sum + day['count'] as int);
+    final averageCount = (totalCount / 7).round();
+    final maxValue = lastSevenDays.fold<int>(0, (max, day) => (day['count'] as int) > max ? day['count'] as int : max);
 
-    return SizedBox(
-      height: 140,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: trend.map((entry) {
-          final date = DateTime.tryParse(entry.key);
-          final label = date != null
-              ? (_dayAbbreviations[date.weekday] ?? entry.key)
-              : entry.key;
-          final heightFactor = maxValue == 0 ? 0.0 : (entry.value / maxValue);
-          final barHeight = (heightFactor * 100) + 16;
-
-          return Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  height: barHeight,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: Text(
-                      entry.value.toString(),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary statistics
+        Row(
+          children: [
+            Expanded(
+              child: _StatSummary(
+                title: 'Total',
+                value: totalCount.toString(),
+                icon: Icons.summarize,
+                color: theme.colorScheme.primary,
+              ),
             ),
-          );
-        }).toList(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _StatSummary(
+                title: 'Rata-rata',
+                value: '$averageCount/hari',
+                icon: Icons.calculate,
+                color: theme.colorScheme.secondary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _StatSummary(
+                title: 'Tertinggi',
+                value: '$maxValue',
+                icon: Icons.trending_up,
+                color: theme.colorScheme.tertiary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Main chart
+        Container(
+          height: 200,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: lastSevenDays.map((dayData) {
+              final count = dayData['count'] as int;
+              final dayName = dayData['day'] as String;
+              final isToday = dayData['isToday'] as bool;
+
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Value label on top of bar
+                      Text(
+                        count.toString(),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+
+                      // Column bar
+                      Expanded(
+                        child: Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                isToday
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.primary.withValues(alpha: 0.7),
+                                isToday
+                                    ? theme.colorScheme.primary.withValues(alpha: 0.8)
+                                    : theme.colorScheme.primary.withValues(alpha: 0.3),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              // Fill animation effect
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 800),
+                                curve: Curves.easeOutCubic,
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+
+                              // Today indicator
+                              if (isToday)
+                                Positioned(
+                                  top: 4,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Day label
+                      Text(
+                        dayName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: isToday ? FontWeight.bold : FontWeight.w600,
+                          color: isToday
+                              ? theme.colorScheme.primary
+                              : theme.textTheme.bodySmall?.color,
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+
+                      // Today indicator
+                      if (isToday)
+                        Container(
+                          width: 4,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // Insight message
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.lightbulb_outline,
+                size: 20,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _getInsightMessage(lastSevenDays, averageCount),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _getLastSevenDaysData(List<MapEntry<String, int>> trend) {
+    final now = DateTime.now();
+    final lastSevenDays = <Map<String, dynamic>>[];
+
+    // Get last 7 days including today
+    for (int i = 6; i >= 0; i--) {
+      final date = now.subtract(Duration(days: i));
+      final dateStr = date.toIso8601String().substring(0, 10);
+      final dayName = _dayAbbreviations[date.weekday] ?? dateStr.substring(8);
+
+      // Find count for this date in trend data
+      final dayCount = trend.firstWhere(
+        (entry) => entry.key == dateStr,
+        orElse: () => MapEntry(dateStr, 0),
+      ).value;
+
+      final isToday = i == 0;
+
+      lastSevenDays.add({
+        'date': dateStr,
+        'day': isToday ? 'Hari Ini' : dayName,
+        'count': dayCount,
+        'isToday': isToday,
+      });
+    }
+
+    return lastSevenDays;
+  }
+
+  String _getInsightMessage(List<Map<String, dynamic>> lastSevenDays, int averageCount) {
+    final today = lastSevenDays.last['count'] as int;
+    final yesterday = lastSevenDays.length > 1 ? lastSevenDays[lastSevenDays.length - 2]['count'] as int : 0;
+
+    if (today > yesterday) {
+      if (today > averageCount) {
+        return 'Hebat! Hari ini Anda lebih aktif dari biasanya. Tetap konsisten! 🎉';
+      } else {
+        return 'Bagus! Aktivitas hari ini meningkat dari kemarin. Keep it up! 💪';
+      }
+    } else if (today < yesterday) {
+      return 'Jangan menyerah! Setiap hari adalah kesempatan baru untuk istiqamah. 🌟';
+    } else {
+      if (today == 0) {
+        return 'Mulai hari ini dengan dzikir, niscaya akan membawa keberkahan. 🙏';
+      } else {
+        return 'Konsistensi adalah kunci! Teruskan dzikir Anda. ✨';
+      }
+    }
+  }
+}
+
+class _StatSummary extends StatelessWidget {
+  const _StatSummary({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(alpha: 0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            title,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.7),
+              fontSize: 10,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -45,14 +45,12 @@ class ZikirRepository {
   Future<void> incrementGoalCount({
     required String userId,
     required int amount,
-    int? circleGoalId,
   }) async {
     await _client.rpc(
       'increment_goal_count',
       params: {
         'user_id_input': userId,
         'amount_to_add': amount,
-        'goal_id_input': circleGoalId,
       },
     );
   }

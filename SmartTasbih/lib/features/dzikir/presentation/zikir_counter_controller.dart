@@ -14,7 +14,6 @@ class ZikirCounterState {
     required this.pendingCount,
     required this.sessionTarget,
     this.isSyncing = false,
-    this.activeCircleGoalId,
     this.errorMessage,
     this.lastSyncedAt,
   });
@@ -23,7 +22,6 @@ class ZikirCounterState {
   final int pendingCount;
   final int sessionTarget;
   final bool isSyncing;
-  final int? activeCircleGoalId;
   final String? errorMessage;
   final DateTime? lastSyncedAt;
 
@@ -39,7 +37,6 @@ class ZikirCounterState {
     int? pendingCount,
     int? sessionTarget,
     bool? isSyncing,
-    int? activeCircleGoalId,
     String? errorMessage,
     DateTime? lastSyncedAt,
   }) {
@@ -48,7 +45,6 @@ class ZikirCounterState {
       pendingCount: pendingCount ?? this.pendingCount,
       sessionTarget: sessionTarget ?? this.sessionTarget,
       isSyncing: isSyncing ?? this.isSyncing,
-      activeCircleGoalId: activeCircleGoalId ?? this.activeCircleGoalId,
       errorMessage: errorMessage,
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
     );
@@ -120,10 +116,7 @@ class ZikirCounterController extends StateNotifier<ZikirCounterState> {
     state = state.copyWith(sessionTarget: target);
   }
 
-  void selectCircleGoal(int? goalId) {
-    state = state.copyWith(activeCircleGoalId: goalId);
-  }
-
+  
   void _scheduleDebounce() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_debounceDuration, () {
@@ -141,7 +134,6 @@ class ZikirCounterController extends StateNotifier<ZikirCounterState> {
       await _repository.incrementGoalCount(
         userId: userId!,
         amount: amount,
-        circleGoalId: state.activeCircleGoalId,
       );
       state = state.copyWith(
         totalCount: state.totalCount + amount,

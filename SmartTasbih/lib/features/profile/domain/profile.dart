@@ -33,6 +33,7 @@ class Profile {
       'avatar_url': avatarUrl,
       'current_tree_level': currentTreeLevel,
       'total_points': totalPoints,
+      'updated_at': updatedAt?.toIso8601String(),
     }..removeWhere((_, value) => value == null);
   }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../tasbih/presentation/tasbih_collections_screen.dart';
-import '../../prayer_circles/presentation/prayer_circles_screen.dart';
+import 'blank_lingkaran_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -16,7 +16,7 @@ class _HomeShellState extends State<HomeShell> {
 
   final _pages = const [
     TasbihCollectionsScreen(),
-    PrayerCirclesScreen(),
+    BlankLingkaranScreen(),
     ProfileScreen(),
   ];
 

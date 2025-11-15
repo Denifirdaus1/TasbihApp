@@ -21,6 +21,35 @@ class NotificationService {
       const InitializationSettings(android: android, iOS: ios),
     );
     tz.initializeTimeZones();
+    
+    // Request notification permission for Android 13+
+    await requestNotificationPermission();
+  }
+
+  static Future<bool> requestNotificationPermission() async {
+    if (_plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>() !=
+        null) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()!
+          .requestNotificationsPermission();
+      return granted ?? false;
+    }
+    return true;
+  }
+
+  static Future<bool> requestExactAlarmPermission() async {
+    if (_plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>() !=
+        null) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()!
+          .requestExactAlarmsPermission();
+      return granted ?? false;
+    }
+    return true;
   }
 
   static Future<void> showCelebration(String title, String body) async {
@@ -80,5 +109,57 @@ class NotificationService {
 
   static Future<void> cancelReminder() async {
     await _plugin.cancel(AppConfig.smartReminderNotificationId);
+  }
+
+  static Future<void> scheduleCollectionReminder({
+    required String collectionId,
+    required String collectionName,
+    required TimeOfDay time,
+    required String message,
+  }) async {
+    final notificationId = collectionId.hashCode;
+    
+    await _plugin.cancel(notificationId);
+    
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduledDate = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
+    );
+
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    await _plugin.zonedSchedule(
+      notificationId,
+      'Pengingat: $collectionName',
+      message,
+      scheduledDate,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'tasbih-collection-reminder',
+          'Pengingat Koleksi Tasbih',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  static Future<void> cancelCollectionReminder(String collectionId) async {
+    final notificationId = collectionId.hashCode;
+    await _plugin.cancel(notificationId);
+  }
+
+  static Future<void> cancelAllReminders() async {
+    await _plugin.cancelAll();
   }
 }

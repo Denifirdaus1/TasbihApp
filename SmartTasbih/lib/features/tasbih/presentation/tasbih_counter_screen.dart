@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../../core/providers/global_providers.dart';
 import '../domain/dhikr_item.dart';
@@ -107,7 +108,7 @@ class _TasbihCounterScreenState extends ConsumerState<TasbihCounterScreen>
   }
 }
 
-class _CounterBody extends ConsumerWidget {
+class _CounterBody extends ConsumerStatefulWidget {
   const _CounterBody({
     required this.collection,
     required this.dhikrItem,
@@ -127,11 +128,55 @@ class _CounterBody extends ConsumerWidget {
   final Animation<double> pulseAnimation;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final counterState = ref.watch(tasbihCounterUiStateProvider(sessionParams));
+  ConsumerState<_CounterBody> createState() => _CounterBodyState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
+class _CounterBodyState extends ConsumerState<_CounterBody> {
+  bool _isHapticEnabled = true;
+  bool _isGlobalTapEnabled = false;
+  bool _hasVibrator = false;
+  bool _isSyncingBeforeExit = false;
+  final GlobalKey _controlsAreaKey = GlobalKey();
+
+  TasbihCollection get collection => widget.collection;
+  DhikrItem get dhikrItem => widget.dhikrItem;
+  Color get collectionColor => widget.collectionColor;
+  SessionParams get sessionParams => widget.sessionParams;
+  VoidCallback get onShowCompletionDialog => widget.onShowCompletionDialog;
+  AnimationController get pulseController => widget.pulseController;
+  Animation<double> get pulseAnimation => widget.pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkVibrationSupport();
+  }
+
+  void _checkVibrationSupport() {
+    Vibration.hasVibrator().then((value) {
+      if (!mounted) return;
+      setState(() {
+        _hasVibrator = value == true;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final counterState =
+        ref.watch(tasbihCounterUiStateProvider(sessionParams));
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _syncPendingChanges();
+        if (context.mounted) {
+          Navigator.of(context).pop(result);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
         title: Text(collection.name),
         backgroundColor: collectionColor.withValues(alpha: 0.1),
         actions: [
@@ -180,25 +225,34 @@ class _CounterBody extends ConsumerWidget {
               const SizedBox(),
         ],
       ),
-      body: counterState.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text('Error: $error')),
-        data: (state) => _buildCounterBody(context, ref, state),
+        body: counterState.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, stack) => Center(child: Text('Error: $error')),
+          data: (state) => _buildCounterBody(context, state),
+        ),
       ),
     );
   }
 
   Widget _buildCounterBody(
     BuildContext context,
-    WidgetRef ref,
     CounterState state,
   ) {
     final theme = Theme.of(context);
     final isCompleted = state.isCompleted;
     final progress = state.progress;
 
-    return Column(
-      children: [
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTapUp: _isGlobalTapEnabled && !isCompleted
+          ? (details) {
+              if (_shouldHandleGlobalTap(details.globalPosition)) {
+                _incrementCount(context, ref);
+              }
+            }
+          : null,
+      child: Column(
+        children: [
         // Header with dzikr text
         Container(
           width: double.infinity,
@@ -301,49 +355,55 @@ class _CounterBody extends ConsumerWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                AnimatedBuilder(
-                  animation: pulseAnimation,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: pulseAnimation.value,
-                      child: Container(
-                        width: 200,
-                        height: 200,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isCompleted
-                              ? Colors.green.withValues(alpha: 0.1)
-                              : collectionColor.withValues(alpha: 0.1),
-                          border: Border.all(
-                            color: isCompleted ? Colors.green : collectionColor,
-                            width: 4,
+                GestureDetector(
+                  onTap: !_isGlobalTapEnabled && !isCompleted
+                      ? () => _incrementCount(context, ref)
+                      : null,
+                  child: AnimatedBuilder(
+                    animation: pulseAnimation,
+                    builder: (context, child) {
+                      return Transform.scale(
+                        scale: pulseAnimation.value,
+                        child: Container(
+                          width: 200,
+                          height: 200,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isCompleted
+                                ? Colors.green.withValues(alpha: 0.1)
+                                : collectionColor.withValues(alpha: 0.1),
+                            border: Border.all(
+                              color:
+                                  isCompleted ? Colors.green : collectionColor,
+                              width: 4,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                state.displayCount.toString(),
+                                style: theme.textTheme.headlineLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 56,
+                                  color: isCompleted
+                                      ? Colors.green
+                                      : collectionColor,
+                                ),
+                              ),
+                              Text(
+                                '/ ${state.targetCount}',
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.textTheme.bodyLarge?.color
+                                      ?.withValues(alpha: 0.7),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              state.displayCount.toString(),
-                              style: theme.textTheme.headlineLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 56,
-                                color: isCompleted
-                                    ? Colors.green
-                                    : collectionColor,
-                              ),
-                            ),
-                            Text(
-                              '/ ${state.targetCount}',
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                color: theme.textTheme.bodyLarge?.color
-                                    ?.withValues(alpha: 0.7),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(height: 32),
                 if (isCompleted) ...[
@@ -379,54 +439,82 @@ class _CounterBody extends ConsumerWidget {
 
         // Control buttons
         Padding(
+          key: _controlsAreaKey,
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              // Main increment button
-              SizedBox(
-                width: double.infinity,
-                height: 80,
-                child: ElevatedButton(
-                  onPressed: isCompleted
-                      ? null
-                      : () => _incrementCount(context, ref),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isCompleted
-                        ? Colors.grey
-                        : collectionColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isHapticEnabled = !_isHapticEnabled;
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: _isHapticEnabled
+                            ? collectionColor
+                            : theme.colorScheme.surface,
+                        foregroundColor: _isHapticEnabled
+                            ? Colors.white
+                            : theme.colorScheme.onSurface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: _isHapticEnabled ? 2 : 0,
+                      ),
+                      icon: Icon(
+                        _isHapticEnabled
+                            ? Icons.vibration
+                            : Icons.vibration_outlined,
+                      ),
+                      label: Text(
+                        _isHapticEnabled ? 'Getar ON' : 'Getar OFF',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                    elevation: isCompleted ? 0 : 4,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (!isCompleted) ...[
-                        Icon(Icons.add_circle_outline, size: 28),
-                        const SizedBox(width: 8),
-                        Text(
-                          'TAMBAH',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isGlobalTapEnabled = !_isGlobalTapEnabled;
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: _isGlobalTapEnabled
+                            ? collectionColor
+                            : theme.colorScheme.surface,
+                        foregroundColor: _isGlobalTapEnabled
+                            ? Colors.white
+                            : theme.colorScheme.onSurface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ] else ...[
-                        Icon(Icons.check, size: 28),
-                        const SizedBox(width: 8),
-                        Text(
-                          'SELESAI',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                        elevation: _isGlobalTapEnabled ? 2 : 0,
+                      ),
+                      icon: Icon(
+                        _isGlobalTapEnabled
+                            ? Icons.touch_app
+                            : Icons.touch_app_outlined,
+                      ),
+                      label: Text(
+                        _isGlobalTapEnabled
+                            ? 'Tap Layar ON'
+                            : 'Tap Layar OFF',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
-                      ],
-                    ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
 
               const SizedBox(height: 16),
@@ -437,14 +525,14 @@ class _CounterBody extends ConsumerWidget {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () =>
-                          _showCountInputDialog(context, ref, state),
+                          _showTargetInputDialog(context, ref, state),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text('Set Jumlah'),
+                      child: const Text('Ubah Target'),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -468,16 +556,11 @@ class _CounterBody extends ConsumerWidget {
           ),
         ),
       ],
-    );
+    ),
+  );
   }
 
   void _incrementCount(BuildContext context, WidgetRef ref) {
-    HapticFeedback.lightImpact();
-
-    pulseController.forward().then((_) {
-      pulseController.reverse();
-    });
-
     final controller = ref.read(
       tasbihCounterControllerProvider(sessionParams).notifier,
     );
@@ -485,16 +568,38 @@ class _CounterBody extends ConsumerWidget {
       tasbihCounterControllerProvider(sessionParams),
     );
 
+    final willComplete = !currentState.isCompleted &&
+        currentState.displayCount + 1 >= currentState.targetCount;
+
+    _triggerHaptic(strong: willComplete);
+
+    pulseController.forward().then((_) {
+      pulseController.reverse();
+    });
+
     // Increment instantly (REAL-TIME!)
     controller.increment();
 
     // Show completion dialog if just reached target
-    if (!currentState.isCompleted &&
-        currentState.displayCount + 1 >= currentState.targetCount) {
+    if (willComplete) {
       // Delay dialog slightly to allow animation
       Future.delayed(const Duration(milliseconds: 300), () {
         onShowCompletionDialog();
       });
+    }
+  }
+
+  void _triggerHaptic({bool strong = false}) {
+    if (!_isHapticEnabled) {
+      return;
+    }
+    if (_hasVibrator) {
+      Vibration.vibrate(
+        duration: strong ? 120 : 40,
+        amplitude: strong ? 200 : 120,
+      );
+    } else {
+      HapticFeedback.lightImpact();
     }
   }
 
@@ -527,25 +632,26 @@ class _CounterBody extends ConsumerWidget {
     );
   }
 
-  void _showCountInputDialog(
+  void _showTargetInputDialog(
     BuildContext context,
     WidgetRef ref,
     CounterState currentState,
   ) {
     final controller = TextEditingController(
-      text: currentState.displayCount.toString(),
+      text: currentState.targetCount.toString(),
     );
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Set Jumlah'),
+        title: const Text('Ubah Target Tasbih'),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: 'Jumlah',
-            hintText: '0-${dhikrItem.targetCount}',
+            labelText: 'Target baru',
+            hintText:
+                'Masukkan target lebih besar dari ${currentState.targetCount}',
             border: const OutlineInputBorder(),
           ),
         ),
@@ -556,21 +662,65 @@ class _CounterBody extends ConsumerWidget {
           ),
           ElevatedButton(
             onPressed: () {
-              final count = int.tryParse(controller.text);
-              if (count != null && count >= 0) {
+              final target = int.tryParse(controller.text);
+              if (target != null && target > 0) {
                 Navigator.of(context).pop();
                 ref
                     .read(
                       tasbihCounterControllerProvider(sessionParams).notifier,
                     )
-                    .setCount(count);
+                    .updateTarget(target);
               }
             },
-            child: const Text('Set'),
+            child: const Text('Simpan Target'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _syncPendingChanges() async {
+    if (_isSyncingBeforeExit) {
+      return;
+    }
+    final counterState = ref.read(
+      tasbihCounterControllerProvider(sessionParams),
+    );
+    if (counterState.pendingCount <= 0) {
+      return;
+    }
+    _isSyncingBeforeExit = true;
+    try {
+      await ref
+          .read(tasbihCounterControllerProvider(sessionParams).notifier)
+          .syncOnExit();
+    } finally {
+      _isSyncingBeforeExit = false;
+    }
+  }
+
+  bool _shouldHandleGlobalTap(Offset globalPosition) {
+    if (!_isGlobalTapEnabled) {
+      return false;
+    }
+    return !_isPointInsideControls(globalPosition);
+  }
+
+  bool _isPointInsideControls(Offset globalPosition) {
+    final context = _controlsAreaKey.currentContext;
+    if (context == null) {
+      return false;
+    }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) {
+      return false;
+    }
+    final topLeft = renderBox.localToGlobal(Offset.zero);
+    final bottomRight = topLeft + Offset(renderBox.size.width, renderBox.size.height);
+    return globalPosition.dx >= topLeft.dx &&
+        globalPosition.dx <= bottomRight.dx &&
+        globalPosition.dy >= topLeft.dy &&
+        globalPosition.dy <= bottomRight.dy;
   }
 }
 
