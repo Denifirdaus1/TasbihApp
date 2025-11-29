@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/profile.dart';
+import '../domain/dhikr_usage_stat.dart';
 import '../domain/user_badge.dart';
 
 class ProfileRepository {
@@ -73,5 +74,22 @@ class ProfileRepository {
     // Add timestamp for cache-busting to force refresh
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     return '$publicUrl?width=400&height=400&quality=80&format=webp&t=$timestamp';
+  }
+
+  Future<List<DhikrUsageStat>> fetchTopDhikrUsage(
+    String userId, {
+    int limit = 20,
+  }) async {
+    final result = await _client
+        .from('vw_user_dhikr_usage')
+        .select()
+        .eq('user_id', userId)
+        .order('total_count', ascending: false)
+        .limit(limit);
+
+    return (result as List)
+        .cast<Map<String, dynamic>>()
+        .map(DhikrUsageStat.fromMap)
+        .toList();
   }
 }

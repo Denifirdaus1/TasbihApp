@@ -9,6 +9,10 @@ class TasbihGoal {
     required this.targetCount,
     required this.startDate,
     this.endDate,
+    this.name,
+    this.currentStreak = 0,
+    this.longestStreak = 0,
+    this.lastCompletedDate,
     this.isActive = true,
     this.createdAt,
     this.updatedAt,
@@ -21,6 +25,10 @@ class TasbihGoal {
   final int targetCount;
   final DateTime startDate;
   final DateTime? endDate;
+  final String? name;
+  final int currentStreak;
+  final int longestStreak;
+  final DateTime? lastCompletedDate;
   final bool isActive;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -33,10 +41,22 @@ class TasbihGoal {
       goalType: TasbihGoalType.fromString(map['goal_type'] as String),
       targetCount: (map['target_count'] as num?)?.toInt() ?? 0,
       startDate: DateTime.parse(map['start_date'] as String),
-      endDate: map['end_date'] != null ? DateTime.parse(map['end_date'] as String) : null,
+      endDate: map['end_date'] != null
+          ? DateTime.parse(map['end_date'] as String)
+          : null,
+      name: map['name'] as String?,
+      currentStreak: (map['current_streak'] as num?)?.toInt() ?? 0,
+      longestStreak: (map['longest_streak'] as num?)?.toInt() ?? 0,
+      lastCompletedDate: map['last_completed_date'] != null
+          ? DateTime.parse(map['last_completed_date'] as String)
+          : null,
       isActive: (map['is_active'] as bool?) ?? true,
-      createdAt: map['created_at'] != null ? DateTime.parse(map['created_at'] as String) : null,
-      updatedAt: map['updated_at'] != null ? DateTime.parse(map['updated_at'] as String) : null,
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'] as String)
+          : null,
+      updatedAt: map['updated_at'] != null
+          ? DateTime.parse(map['updated_at'] as String)
+          : null,
     );
   }
 
@@ -49,6 +69,10 @@ class TasbihGoal {
       'target_count': targetCount,
       'start_date': startDate.toIso8601String(),
       'end_date': endDate?.toIso8601String(),
+      'name': name,
+      'current_streak': currentStreak,
+      'longest_streak': longestStreak,
+      'last_completed_date': lastCompletedDate?.toIso8601String(),
       'is_active': isActive,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -56,10 +80,14 @@ class TasbihGoal {
   }
 
   TasbihGoal copyWith({
+    String? name,
     TasbihGoalType? goalType,
     int? targetCount,
     DateTime? startDate,
     DateTime? endDate,
+    int? currentStreak,
+    int? longestStreak,
+    DateTime? lastCompletedDate,
     bool? isActive,
     DateTime? updatedAt,
   }) {
@@ -71,6 +99,10 @@ class TasbihGoal {
       targetCount: targetCount ?? this.targetCount,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
+      name: name ?? this.name,
+      currentStreak: currentStreak ?? this.currentStreak,
+      longestStreak: longestStreak ?? this.longestStreak,
+      lastCompletedDate: lastCompletedDate ?? this.lastCompletedDate,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now(),

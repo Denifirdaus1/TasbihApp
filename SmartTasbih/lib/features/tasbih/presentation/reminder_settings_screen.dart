@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/notifications/notification_service.dart';
+import '../../../core/providers/global_providers.dart';
+import '../domain/reminder_settings.dart';
 import '../domain/tasbih_collection.dart';
+import 'tasbih_providers.dart';
 
 class ReminderSettingsScreen extends ConsumerStatefulWidget {
   const ReminderSettingsScreen({super.key, required this.collection});
@@ -20,12 +23,15 @@ class _ReminderSettingsScreenState
   TimeOfDay _selectedTime = const TimeOfDay(hour: 6, minute: 0);
   final _messageController = TextEditingController();
   final List<int> _selectedDays = [1, 2, 3, 4, 5, 6, 7];
+  ReminderSettings? _currentReminder;
+  bool _isLoading = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _messageController.text =
-        'Waktunya dzikir ${widget.collection.name}! Jangan lupa untuk berdzikir hari ini.';
+    _messageController.text = _defaultMessage();
+    _loadReminder();
   }
 
   @override
@@ -40,7 +46,9 @@ class _ReminderSettingsScreenState
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pengaturan Pengingat')),
-      body: ListView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
@@ -239,16 +247,22 @@ class _ReminderSettingsScreenState
           const SizedBox(height: 24),
           if (_isEnabled)
             FilledButton.icon(
-              onPressed: _saveReminder,
-              icon: const Icon(Icons.save),
-              label: const Text('Simpan Pengingat'),
+              onPressed: _isSaving ? null : _saveReminder,
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Pengingat'),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             )
           else
             OutlinedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _isSaving ? null : () => Navigator.pop(context),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
@@ -257,6 +271,39 @@ class _ReminderSettingsScreenState
         ],
       ),
     );
+  }
+
+  Future<void> _loadReminder() async {
+    final userId = ref.read(currentUserProvider)?.id;
+    if (userId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    final repository = ref.read(tasbihRepositoryProvider);
+    final reminder = await repository.fetchReminderByCollection(
+      userId,
+      widget.collection.id,
+    );
+
+    if (!mounted) return;
+
+    if (reminder != null) {
+      _currentReminder = reminder;
+      _isEnabled = reminder.isEnabled;
+      _selectedTime = reminder.scheduledTime ?? _selectedTime;
+      _messageController.text =
+          reminder.customMessage?.isNotEmpty == true
+              ? reminder.customMessage!
+              : _defaultMessage();
+      _selectedDays
+        ..clear()
+        ..addAll(reminder.daysOfWeek.isNotEmpty
+            ? reminder.daysOfWeek
+            : [1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    setState(() => _isLoading = false);
   }
 
   void _toggleDay(int day) {
@@ -273,17 +320,41 @@ class _ReminderSettingsScreenState
   }
 
   Future<void> _saveReminder() async {
-    try {
-      // Request exact alarm permission first (Android 12+)
+    final userId = ref.read(currentUserProvider)?.id;
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Silakan masuk terlebih dahulu')),
+        );
+      }
+      return;
+    }
+
+    if (_isEnabled) {
+      final notificationGranted =
+          await NotificationService.requestNotificationPermission();
+      if (!notificationGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Izinkan notifikasi SmartTasbih terlebih dahulu di pengaturan.',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
       final hasPermission =
           await NotificationService.requestExactAlarmPermission();
-
       if (!hasPermission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Permission "Alarms & reminders" diperlukan untuk pengingat tepat waktu. Silakan aktifkan di Settings.',
+                'Permission "Alarms & reminders" diperlukan untuk pengingat tepat waktu. Aktifkan di Settings.',
               ),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 5),
@@ -292,19 +363,49 @@ class _ReminderSettingsScreenState
         }
         return;
       }
+    }
 
-      // Schedule notification
-      await NotificationService.scheduleCollectionReminder(
+    setState(() => _isSaving = true);
+
+    try {
+      final message = _messageController.text.trim().isEmpty
+          ? _defaultMessage()
+          : _messageController.text.trim();
+
+      final repository = ref.read(tasbihRepositoryProvider);
+      final savedReminder = await repository.saveReminderSettings(
+        reminderId: _currentReminder?.id,
+        userId: userId,
         collectionId: widget.collection.id,
-        collectionName: widget.collection.name,
-        time: _selectedTime,
-        message: _messageController.text,
+        isEnabled: _isEnabled,
+        scheduledTime: _isEnabled ? _formatTime(_selectedTime) : null,
+        customMessage: message,
+        daysOfWeek: List<int>.from(_selectedDays),
       );
+      _currentReminder = savedReminder;
+
+      if (_isEnabled) {
+        await NotificationService.scheduleCollectionReminder(
+          collectionId: widget.collection.id,
+          collectionName: widget.collection.name,
+          time: _selectedTime,
+          message: message,
+          daysOfWeek: _selectedDays,
+        );
+      } else {
+        await NotificationService.cancelCollectionReminder(
+          widget.collection.id,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pengingat berhasil disimpan!'),
+          SnackBar(
+            content: Text(
+              _isEnabled
+                  ? 'Pengingat aktif untuk koleksi ini.'
+                  : 'Pengingat dinonaktifkan.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -313,10 +414,26 @@ class _ReminderSettingsScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
+  }
+
+  String _defaultMessage() =>
+      'Waktunya dzikir ${widget.collection.name}! Jangan lupa berdzikir hari ini.';
+
+  String _formatTime(TimeOfDay time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   Color _getColor(String colorHex) {

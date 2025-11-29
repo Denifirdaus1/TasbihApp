@@ -4,6 +4,7 @@ import '../../../core/providers/global_providers.dart';
 import '../../tasbih/presentation/tasbih_providers.dart';
 import '../data/profile_repository.dart';
 import '../domain/achievement_overview.dart';
+import '../domain/dhikr_usage_stat.dart';
 import '../domain/profile.dart';
 import '../domain/user_badge.dart';
 
@@ -51,3 +52,14 @@ final achievementOverviewProvider = FutureProvider<AchievementOverview>((
     dailyStats: dailyStats,
   );
 });
+
+final topDhikrUsageProvider =
+    FutureProvider<List<DhikrUsageStat>>((ref) async {
+      final user = ref.watch(currentUserProvider);
+      if (user == null) {
+        return [];
+      }
+      return ref
+          .watch(profileRepositoryProvider)
+          .fetchTopDhikrUsage(user.id, limit: 5);
+    });

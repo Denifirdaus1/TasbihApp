@@ -19,6 +19,19 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    if (name == "flutter_native_timezone") {
+        plugins.withId("com.android.library") {
+            // Configure the Android library extension as soon as the plugin is applied,
+            // avoiding afterEvaluate which is restricted on newer Gradle/AGP.
+            extensions.findByName("android")?.let { ext ->
+                (ext as? com.android.build.gradle.LibraryExtension)?.namespace =
+                    "com.flybits.flutter_native_timezone"
+            }
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

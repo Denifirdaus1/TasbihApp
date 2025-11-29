@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../core/providers/global_providers.dart';
 import '../../../core/widgets/async_value_widget.dart';
 import '../domain/achievement_overview.dart';
+import '../domain/dhikr_usage_stat.dart';
 import 'profile_providers.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -16,6 +17,7 @@ class ProfileScreen extends ConsumerWidget {
     final profile = ref.watch(profileFutureProvider);
     final badges = ref.watch(badgeListProvider);
     final achievementOverview = ref.watch(achievementOverviewProvider);
+    final topDhikrUsage = ref.watch(topDhikrUsageProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -119,6 +121,42 @@ class ProfileScreen extends ConsumerWidget {
                     unlockedBadges:
                         badges.whenOrNull(data: (items) => items.length) ?? 0,
                   ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Dzikir Terbanyak',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                AsyncValueWidget(
+                  value: topDhikrUsage,
+                  builder: (stats) {
+                    if (stats.isEmpty) {
+                      return const _EmptyDhikrUsageState();
+                    }
+                    final maxVisible = stats.length < 5 ? stats.length : 5;
+                    final listHeight = (maxVisible * 110).toDouble();
+                    return Scrollbar(
+                      thumbVisibility: stats.length > maxVisible,
+                      child: SizedBox(
+                        height: listHeight,
+                        child: ListView.separated(
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: stats.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final stat = stats[index];
+                            return _DhikrUsageTile(
+                              stat: stat,
+                              rank: index + 1,
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -322,11 +360,13 @@ Future<void> _refreshDashboard(WidgetRef ref) async {
   ref.invalidate(profileFutureProvider);
   ref.invalidate(badgeListProvider);
   ref.invalidate(achievementOverviewProvider);
+  ref.invalidate(topDhikrUsageProvider);
 
   await Future.wait([
     ref.refresh(profileFutureProvider.future),
     ref.refresh(badgeListProvider.future),
     ref.refresh(achievementOverviewProvider.future),
+    ref.refresh(topDhikrUsageProvider.future),
   ]);
 }
 
@@ -938,6 +978,131 @@ class _StatSummary extends StatelessWidget {
               color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.7),
               fontSize: 10,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DhikrUsageTile extends StatelessWidget {
+  const _DhikrUsageTile({required this.stat, required this.rank});
+
+  final DhikrUsageStat stat;
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final formatter = NumberFormat.decimalPattern();
+    final subtitle = stat.translation?.isNotEmpty == true
+        ? stat.translation!
+        : stat.collectionName ?? 'Tanpa koleksi';
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: theme.colorScheme.primaryContainer,
+              child: Text(
+                '$rank',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stat.text,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatLastUsed(stat.lastUsedDate),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  formatter.format(stat.totalCount),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'bacaan',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatLastUsed(DateTime? date) {
+    if (date == null) return 'Belum ada aktivitas';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    if (target == today) return 'Dibaca hari ini';
+    if (target == today.subtract(const Duration(days: 1))) {
+      return 'Terakhir kemarin';
+    }
+    return 'Terakhir ${DateFormat('dd MMM yyyy').format(date)}';
+  }
+}
+
+class _EmptyDhikrUsageState extends StatelessWidget {
+  const _EmptyDhikrUsageState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.self_improvement, size: 48),
+          const SizedBox(height: 12),
+          Text(
+            'Belum ada data dzikir',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Mulai dzikir menggunakan tasbih untuk melihat dzikir terfavoritmu.',
+            textAlign: TextAlign.center,
           ),
         ],
       ),

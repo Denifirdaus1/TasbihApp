@@ -1,11 +1,14 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/dhikr_item.dart';
+import '../domain/dzikir_plan.dart';
+import '../domain/dzikir_plan_session.dart';
 import '../domain/prayer_time.dart';
 import '../domain/reminder_settings.dart';
 import '../domain/tasbih_collection.dart';
 import '../domain/tasbih_goal.dart';
 import '../domain/tasbih_session.dart';
+import '../domain/streak_update.dart';
 
 class TasbihRepository {
   TasbihRepository(this._client);
@@ -60,7 +63,8 @@ class TasbihRepository {
     return TasbihCollection.fromMap(result);
   }
 
-  Future<TasbihCollection> updateCollection(String collectionId, {
+  Future<TasbihCollection> updateCollection(
+    String collectionId, {
     String? name,
     String? description,
     String? color,
@@ -87,9 +91,10 @@ class TasbihRepository {
   }
 
   Future<TasbihCollection> toggleTimePeriod(String collectionId) async {
-    final result = await _client.rpc('toggle_time_period', params: {
-      'collection_id': collectionId,
-    });
+    final result = await _client.rpc(
+      'toggle_time_period',
+      params: {'collection_id': collectionId},
+    );
 
     return TasbihCollection.fromMap(result);
   }
@@ -112,11 +117,26 @@ class TasbihRepository {
         .toList();
   }
 
-  Future<void> deleteCollection(String collectionId) async {
-    await _client
+  Future<TasbihCollection> fetchCollectionById({
+    required String userId,
+    required String collectionId,
+  }) async {
+    final result = await _client
         .from('tasbih_collections')
-        .delete()
-        .eq('id', collectionId);
+        .select()
+        .eq('user_id', userId)
+        .eq('id', collectionId)
+        .maybeSingle();
+
+    if (result == null) {
+      throw Exception('Koleksi tidak ditemukan');
+    }
+
+    return TasbihCollection.fromMap(result);
+  }
+
+  Future<void> deleteCollection(String collectionId) async {
+    await _client.from('tasbih_collections').delete().eq('id', collectionId);
   }
 
   // Dhikr Items Operations
@@ -131,6 +151,17 @@ class TasbihRepository {
         .cast<Map<String, dynamic>>()
         .map<DhikrItem>(DhikrItem.fromMap)
         .toList();
+  }
+
+  Future<DhikrItem?> fetchDhikrItemById(String dhikrItemId) async {
+    final result = await _client
+        .from('dhikr_items')
+        .select()
+        .eq('id', dhikrItemId)
+        .maybeSingle();
+
+    if (result == null) return null;
+    return DhikrItem.fromMap(result);
   }
 
   Future<DhikrItem> createDhikrItem({
@@ -157,7 +188,8 @@ class TasbihRepository {
     return DhikrItem.fromMap(result);
   }
 
-  Future<DhikrItem> updateDhikrItem(String itemId, {
+  Future<DhikrItem> updateDhikrItem(
+    String itemId, {
     String? text,
     String? translation,
     int? targetCount,
@@ -180,16 +212,11 @@ class TasbihRepository {
   }
 
   Future<void> deleteDhikrItem(String itemId) async {
-    await _client
-        .from('dhikr_items')
-        .delete()
-        .eq('id', itemId);
+    await _client.from('dhikr_items').delete().eq('id', itemId);
   }
 
   Future<void> reorderDhikrItems(List<Map<String, dynamic>> items) async {
-    await _client
-        .from('dhikr_items')
-        .upsert(items);
+    await _client.from('dhikr_items').upsert(items);
   }
 
   // Session Operations
@@ -199,18 +226,25 @@ class TasbihRepository {
     required String dhikrItemId,
     required int targetCount,
     DateTime? sessionDate,
+    String? goalSessionId,
   }) async {
     final date = sessionDate ?? DateTime.now();
     final dateStr = date.toIso8601String().substring(0, 10); // YYYY-MM-DD
 
     // Try to get existing session
-    final existingSession = await _client
+    var query = _client
         .from('tasbih_sessions')
         .select()
         .eq('user_id', userId)
         .eq('dhikr_item_id', dhikrItemId)
-        .eq('session_date', dateStr)
-        .maybeSingle();
+        .eq('session_date', dateStr);
+    if (goalSessionId != null) {
+      query = query.eq('goal_session_id', goalSessionId);
+    } else {
+      query = query.filter('goal_session_id', 'is', null);
+    }
+
+    final existingSession = await query.maybeSingle();
 
     if (existingSession != null) {
       return TasbihSession.fromMap(existingSession);
@@ -224,6 +258,7 @@ class TasbihRepository {
       'count': 0,
       'target_count': targetCount,
       'session_date': dateStr,
+      'goal_session_id': goalSessionId,
     };
 
     final result = await _client
@@ -235,13 +270,17 @@ class TasbihRepository {
     return TasbihSession.fromMap(result);
   }
 
-  Future<TasbihSession> updateSessionCount(String sessionId, int count) async {
-    final completedAt = count >= 33 ? DateTime.now().toIso8601String() : null;
+  Future<TasbihSession> updateSessionCount(
+    String sessionId,
+    int count, {
+    int? targetCount,
+  }) async {
+    final effectiveTarget = targetCount ?? 0;
+    final completedAt = effectiveTarget > 0 && count >= effectiveTarget
+        ? DateTime.now().toIso8601String()
+        : null;
 
-    final data = {
-      'count': count,
-      'completed_at': completedAt,
-    };
+    final data = {'count': count, 'completed_at': completedAt};
 
     final result = await _client
         .from('tasbih_sessions')
@@ -280,21 +319,24 @@ class TasbihRepository {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    var query = _client
-        .from('tasbih_sessions')
-        .select()
-        .eq('user_id', userId);
+    var query = _client.from('tasbih_sessions').select().eq('user_id', userId);
 
     if (collectionId != null) {
       query = query.eq('collection_id', collectionId);
     }
 
     if (startDate != null) {
-      query = query.gte('session_date', startDate.toIso8601String().substring(0, 10));
+      query = query.gte(
+        'session_date',
+        startDate.toIso8601String().substring(0, 10),
+      );
     }
 
     if (endDate != null) {
-      query = query.lte('session_date', endDate.toIso8601String().substring(0, 10));
+      query = query.lte(
+        'session_date',
+        endDate.toIso8601String().substring(0, 10),
+      );
     }
 
     final result = await query.order('session_date', ascending: false);
@@ -303,6 +345,177 @@ class TasbihRepository {
         .cast<Map<String, dynamic>>()
         .map<TasbihSession>(TasbihSession.fromMap)
         .toList();
+  }
+
+  // Dzikir Planner helpers
+  Future<DzikirPlannerSummary?> fetchPlannerSummary(String userId) async {
+    final result = await _client
+        .from('vw_dzikir_planner_summary')
+        .select()
+        .eq('user_id', userId)
+        .order('total_daily_target', ascending: false)
+        .order('goal_id', ascending: true)
+        .limit(1)
+        .maybeSingle();
+
+    if (result == null) return null;
+    return DzikirPlannerSummary.fromMap(result);
+  }
+
+  Future<List<DzikirTodo>> fetchDailyTodos(String userId) async {
+    final result = await _client
+        .from('vw_daily_dzikir_todos')
+        .select()
+        .eq('user_id', userId)
+        .order('session_time', ascending: true)
+        .order('order_index', ascending: true);
+
+    return (result as List)
+        .cast<Map<String, dynamic>>()
+        .map<DzikirTodo>(DzikirTodo.fromMap)
+        .toList();
+  }
+
+  Future<TasbihGoal> ensureDailyPlannerGoal(String userId) async {
+    final existing = await _client
+        .from('tasbih_goals')
+        .select()
+        .eq('user_id', userId)
+        .eq('goal_type', TasbihGoalType.daily.value)
+        .eq('is_active', true)
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (existing != null) {
+      return TasbihGoal.fromMap(existing);
+    }
+
+    final data = {
+      'user_id': userId,
+      'goal_type': TasbihGoalType.daily.value,
+      'target_count': 0,
+      'total_daily_target': 0,
+      'start_date': DateTime.now().toIso8601String().substring(0, 10),
+      'is_active': true,
+      'days_of_week': const [1, 2, 3, 4, 5, 6, 7],
+      'repeat_daily': true,
+      'name': 'Dzikir Harian',
+    };
+
+    final result = await _client
+        .from('tasbih_goals')
+        .insert(data)
+        .select()
+        .single();
+
+    return TasbihGoal.fromMap(result);
+  }
+
+  Future<void> createDzikirTodo(DzikirTodoInput input) async {
+    final payload = input.toMap();
+    payload['order_index'] =
+        input.orderIndex ?? _orderIndexFromTime(input.sessionTime);
+
+    await _client.from('tasbih_goal_sessions').insert(payload);
+    await _syncGoalDailyTarget(input.goalId);
+  }
+
+  Future<void> updateDzikirTodo(
+    String goalSessionId, {
+    String? sessionTime,
+    int? targetCount,
+    List<int>? daysOfWeek,
+    bool? isActive,
+    String? name,
+    String? collectionId,
+    String? dhikrItemId,
+  }) async {
+    final data = <String, dynamic>{};
+    if (sessionTime != null) {
+      data['session_time'] = sessionTime;
+      data['order_index'] = _orderIndexFromTime(sessionTime);
+    }
+    if (targetCount != null) data['target_count'] = targetCount;
+    if (daysOfWeek != null) data['days_of_week'] = daysOfWeek;
+    if (isActive != null) data['is_active'] = isActive;
+    if (name != null) data['name'] = name;
+    if (collectionId != null) data['collection_id'] = collectionId;
+    if (dhikrItemId != null) data['dhikr_item_id'] = dhikrItemId;
+
+    if (data.isEmpty) return;
+
+    final updatedGoal = await _client
+        .from('tasbih_goal_sessions')
+        .update(data)
+        .eq('id', goalSessionId)
+        .select('goal_id')
+        .maybeSingle();
+
+    if (updatedGoal != null && (targetCount != null || isActive != null)) {
+      final goalId = updatedGoal['goal_id'] as String;
+      await _syncGoalDailyTarget(goalId);
+    }
+  }
+
+  Future<void> updateGoalSessionTarget(
+    String goalSessionId,
+    int targetCount,
+  ) async {
+    final updated = await _client
+        .from('tasbih_goal_sessions')
+        .update({'target_count': targetCount})
+        .eq('id', goalSessionId)
+        .select('goal_id')
+        .maybeSingle();
+
+    if (updated != null) {
+      await _syncGoalDailyTarget(updated['goal_id'] as String);
+    }
+  }
+
+  Future<void> deleteDzikirTodo(String goalSessionId) async {
+    await _client
+        .from('tasbih_sessions')
+        .update({'goal_session_id': null})
+        .eq('goal_session_id', goalSessionId);
+
+    final deleted = await _client
+        .from('tasbih_goal_sessions')
+        .delete()
+        .eq('id', goalSessionId)
+        .select('goal_id')
+        .maybeSingle();
+
+    if (deleted != null) {
+      final goalId = deleted['goal_id'] as String;
+      await _syncGoalDailyTarget(goalId);
+    }
+  }
+
+  Future<void> markPlannerDayCompleted({
+    required String goalId,
+    required String userId,
+  }) async {
+    await _client.rpc(
+      'mark_tasbih_goal_completed',
+      params: {'p_goal_id': goalId, 'p_user_id': userId},
+    );
+  }
+
+  Future<StreakUpdate?> updateDailyStreak({
+    required String userId,
+    DateTime? date,
+  }) async {
+    final params = {
+      'p_user_id': userId,
+      if (date != null) 'p_date': date.toIso8601String().substring(0, 10),
+    };
+    final result = await _client.rpc('update_daily_streak', params: params);
+    if (result is Map<String, dynamic>) {
+      return StreakUpdate.fromMap(result);
+    }
+    return null;
   }
 
   // Goal Operations
@@ -327,7 +540,9 @@ class TasbihRepository {
     required int targetCount,
     required DateTime startDate,
     DateTime? endDate,
+    String? name,
   }) async {
+    final normalizedName = _normalizePlanName(name);
     final data = {
       'user_id': userId,
       'collection_id': collectionId,
@@ -336,6 +551,7 @@ class TasbihRepository {
       'start_date': startDate.toIso8601String(),
       'end_date': endDate?.toIso8601String(),
       'is_active': true,
+      if (normalizedName != null) 'name': normalizedName,
     };
 
     final result = await _client
@@ -347,12 +563,14 @@ class TasbihRepository {
     return TasbihGoal.fromMap(result);
   }
 
-  Future<TasbihGoal> updateGoal(String goalId, {
+  Future<TasbihGoal> updateGoal(
+    String goalId, {
     TasbihGoalType? goalType,
     int? targetCount,
     DateTime? startDate,
     DateTime? endDate,
     bool? isActive,
+    String? name,
   }) async {
     final data = <String, dynamic>{};
     if (goalType != null) data['goal_type'] = goalType.value;
@@ -360,6 +578,10 @@ class TasbihRepository {
     if (startDate != null) data['start_date'] = startDate.toIso8601String();
     if (endDate != null) data['end_date'] = endDate.toIso8601String();
     if (isActive != null) data['is_active'] = isActive;
+    if (name != null) {
+      final normalizedName = _normalizePlanName(name);
+      data['name'] = normalizedName;
+    }
 
     final result = await _client
         .from('tasbih_goals')
@@ -372,10 +594,7 @@ class TasbihRepository {
   }
 
   Future<void> deleteGoal(String goalId) async {
-    await _client
-        .from('tasbih_goals')
-        .delete()
-        .eq('id', goalId);
+    await _client.from('tasbih_goals').delete().eq('id', goalId);
   }
 
   // Reminder Operations
@@ -392,7 +611,10 @@ class TasbihRepository {
         .toList();
   }
 
-  Future<ReminderSettings?> fetchReminderByCollection(String userId, String collectionId) async {
+  Future<ReminderSettings?> fetchReminderByCollection(
+    String userId,
+    String collectionId,
+  ) async {
     final result = await _client
         .from('tasbih_reminders')
         .select()
@@ -414,7 +636,10 @@ class TasbihRepository {
     return ReminderSettings.fromMap(result);
   }
 
-  Future<ReminderSettings> updateReminder(String reminderId, Map<String, dynamic> updates) async {
+  Future<ReminderSettings> updateReminder(
+    String reminderId,
+    Map<String, dynamic> updates,
+  ) async {
     final result = await _client
         .from('tasbih_reminders')
         .update(updates)
@@ -426,14 +651,39 @@ class TasbihRepository {
   }
 
   Future<void> deleteReminder(String reminderId) async {
-    await _client
-        .from('tasbih_reminders')
-        .delete()
-        .eq('id', reminderId);
+    await _client.from('tasbih_reminders').delete().eq('id', reminderId);
+  }
+
+  Future<ReminderSettings> saveReminderSettings({
+    String? reminderId,
+    required String userId,
+    required String collectionId,
+    required bool isEnabled,
+    String? scheduledTime,
+    String? customMessage,
+    required List<int> daysOfWeek,
+  }) async {
+    final data = {
+      'user_id': userId,
+      'collection_id': collectionId,
+      'is_enabled': isEnabled,
+      'scheduled_time': scheduledTime,
+      'custom_message': customMessage,
+      'days_of_week': daysOfWeek,
+    }..removeWhere((_, value) => value == null);
+
+    final query = _client.from('tasbih_reminders');
+    final result = reminderId == null
+        ? await query.insert(data).select().single()
+        : await query.update(data).eq('id', reminderId).select().single();
+
+    return ReminderSettings.fromMap(result);
   }
 
   // Create Default Prayer Collections
-  Future<List<TasbihCollection>> createDefaultPrayerCollections(String userId) async {
+  Future<List<TasbihCollection>> createDefaultPrayerCollections(
+    String userId,
+  ) async {
     final collections = <TasbihCollection>[];
 
     for (final collectionData in DefaultPrayerCollections.collections) {
@@ -451,7 +701,11 @@ class TasbihRepository {
       collections.add(collection);
 
       // Add default dhikr items to each collection
-      for (var i = 0; i < DefaultPrayerCollections.defaultDhikrItems.length; i++) {
+      for (
+        var i = 0;
+        i < DefaultPrayerCollections.defaultDhikrItems.length;
+        i++
+      ) {
         final item = DefaultPrayerCollections.defaultDhikrItems[i];
         await createDhikrItem(
           collectionId: collection.id,
@@ -494,7 +748,8 @@ class TasbihRepository {
     );
 
     // Add default time-based dhikr items
-    final defaultTimeDhikrItems = DefaultPrayerCollections.defaultTimeDhikrItems;
+    final defaultTimeDhikrItems =
+        DefaultPrayerCollections.defaultTimeDhikrItems;
     for (var i = 0; i < defaultTimeDhikrItems.length; i++) {
       final item = defaultTimeDhikrItems[i];
       await createDhikrItem(
@@ -510,18 +765,28 @@ class TasbihRepository {
   }
 
   // Statistics
-  Future<Map<String, dynamic>> getStatistics(String userId, {DateTime? startDate, DateTime? endDate}) async {
+  Future<Map<String, dynamic>> getStatistics(
+    String userId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     var query = _client
         .from('tasbih_sessions')
         .select('count, target_count, session_date')
         .eq('user_id', userId);
 
     if (startDate != null) {
-      query = query.gte('session_date', startDate.toIso8601String().substring(0, 10));
+      query = query.gte(
+        'session_date',
+        startDate.toIso8601String().substring(0, 10),
+      );
     }
 
     if (endDate != null) {
-      query = query.lte('session_date', endDate.toIso8601String().substring(0, 10));
+      query = query.lte(
+        'session_date',
+        endDate.toIso8601String().substring(0, 10),
+      );
     }
 
     final result = await query;
@@ -546,5 +811,40 @@ class TasbihRepository {
       'completedCount': completedCount,
       'dailyStats': dailyStats,
     };
+  }
+
+  String? _normalizePlanName(String? name) {
+    if (name == null) return null;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  Future<void> _syncGoalDailyTarget(String goalId) async {
+    final result = await _client
+        .from('tasbih_goal_sessions')
+        .select('target_count')
+        .eq('goal_id', goalId)
+        .eq('is_active', true);
+
+    final total = (result as List).fold<int>(
+      0,
+      (sum, item) => sum + ((item['target_count'] as num?)?.toInt() ?? 0),
+    );
+
+    await _client
+        .from('tasbih_goals')
+        .update({'total_daily_target': total})
+        .eq('id', goalId);
+  }
+
+  int _orderIndexFromTime(String sessionTime) {
+    final parts = sessionTime.split(':');
+    if (parts.length < 2) {
+      return DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    }
+    final hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+    return hour * 60 + minute;
   }
 }

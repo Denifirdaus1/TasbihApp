@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/global_providers.dart';
 import '../data/tasbih_repository.dart';
 import '../domain/dhikr_item.dart';
+import '../domain/dzikir_plan.dart';
+import '../domain/dzikir_plan_session.dart';
 import '../domain/tasbih_collection.dart';
 import '../domain/tasbih_goal.dart';
 import '../domain/tasbih_session.dart';
@@ -53,6 +55,7 @@ final tasbihSessionProvider =
         dhikrItemId: params.dhikrItemId,
         targetCount: params.targetCount,
         sessionDate: params.sessionDate,
+        goalSessionId: params.goalSessionId,
       );
     });
 
@@ -66,6 +69,7 @@ final counterControllerProvider =
         dhikrItemId: params.dhikrItemId,
         targetCount: params.targetCount,
         sessionDate: params.sessionDate,
+        goalSessionId: params.goalSessionId,
       );
     });
 
@@ -76,6 +80,8 @@ class SessionParams {
     required this.dhikrItemId,
     required this.targetCount,
     this.sessionDate,
+    this.planGoalId,
+    this.goalSessionId,
   });
 
   final String userId;
@@ -83,6 +89,8 @@ class SessionParams {
   final String dhikrItemId;
   final int targetCount;
   final DateTime? sessionDate;
+  final String? planGoalId;
+  final String? goalSessionId;
 
   @override
   bool operator ==(Object other) =>
@@ -93,7 +101,9 @@ class SessionParams {
           collectionId == other.collectionId &&
           dhikrItemId == other.dhikrItemId &&
           targetCount == other.targetCount &&
-          sessionDate == other.sessionDate;
+          sessionDate == other.sessionDate &&
+          planGoalId == other.planGoalId &&
+          goalSessionId == other.goalSessionId;
 
   @override
   int get hashCode =>
@@ -101,7 +111,9 @@ class SessionParams {
       collectionId.hashCode ^
       dhikrItemId.hashCode ^
       targetCount.hashCode ^
-      sessionDate.hashCode;
+      sessionDate.hashCode ^
+      (planGoalId?.hashCode ?? 0) ^
+      (goalSessionId?.hashCode ?? 0);
 }
 
 // Session History Provider
@@ -149,6 +161,37 @@ class SessionsParams {
       startDate.hashCode ^
       endDate.hashCode;
 }
+
+final dzikirPlannerSummaryProvider =
+    FutureProvider<DzikirPlannerSummary?>((ref) async {
+      final userId = ref.watch(currentUserProvider)?.id;
+      if (userId == null) return null;
+
+      final repository = ref.watch(tasbihRepositoryProvider);
+      return repository.fetchPlannerSummary(userId);
+    });
+
+final dailyDzikirTodosProvider =
+    FutureProvider<List<DzikirTodo>>((ref) async {
+      final userId = ref.watch(currentUserProvider)?.id;
+      if (userId == null) return [];
+
+      final repository = ref.watch(tasbihRepositoryProvider);
+      return repository.fetchDailyTodos(userId);
+    });
+
+final createDzikirTodoProvider =
+    NotifierProvider<CreateDzikirTodoNotifier, AsyncValue<void>>(
+      CreateDzikirTodoNotifier.new,
+    );
+final updateDzikirTodoProvider =
+    NotifierProvider<UpdateDzikirTodoNotifier, AsyncValue<void>>(
+      UpdateDzikirTodoNotifier.new,
+    );
+final deleteDzikirTodoProvider =
+    NotifierProvider<DeleteDzikirTodoNotifier, AsyncValue<void>>(
+      DeleteDzikirTodoNotifier.new,
+    );
 
 // Goals Provider
 final goalsProvider = FutureProvider<List<TasbihGoal>>((ref) async {
@@ -303,11 +346,13 @@ Future<TasbihSession> updateSessionAction(
       dhikrItemId: params.dhikrItemId,
       targetCount: params.targetCount,
       sessionDate: params.sessionDate,
+      goalSessionId: params.goalSessionId,
     );
 
     final updatedSession = await repository.updateSessionCount(
       currentSession.id,
       count,
+      targetCount: params.targetCount,
     );
     notifier.updateState(AsyncValue.data(updatedSession));
     return updatedSession;
@@ -454,6 +499,27 @@ class UpdateDhikrItemNotifier extends Notifier<AsyncValue<void>> {
   void updateState(AsyncValue<void> value) => state = value;
 }
 
+class CreateDzikirTodoNotifier extends Notifier<AsyncValue<void>> {
+  @override
+  AsyncValue<void> build() => const AsyncValue.data(null);
+
+  void updateState(AsyncValue<void> value) => state = value;
+}
+
+class UpdateDzikirTodoNotifier extends Notifier<AsyncValue<void>> {
+  @override
+  AsyncValue<void> build() => const AsyncValue.data(null);
+
+  void updateState(AsyncValue<void> value) => state = value;
+}
+
+class DeleteDzikirTodoNotifier extends Notifier<AsyncValue<void>> {
+  @override
+  AsyncValue<void> build() => const AsyncValue.data(null);
+
+  void updateState(AsyncValue<void> value) => state = value;
+}
+
 // Create Default Collections
 Future<void> createDefaultCollectionsAction(WidgetRef ref) async {
   try {
@@ -467,6 +533,104 @@ Future<void> createDefaultCollectionsAction(WidgetRef ref) async {
 
     ref.invalidate(collectionsProvider);
   } catch (e) {
+    rethrow;
+  }
+}
+
+Future<TasbihGoal> ensureDailyPlannerGoalAction(WidgetRef ref) async {
+  final userId = ref.read(currentUserProvider)?.id;
+  if (userId == null) {
+    throw Exception('User not authenticated');
+  }
+
+  final repository = ref.read(tasbihRepositoryProvider);
+  final goal = await repository.ensureDailyPlannerGoal(userId);
+  ref.invalidate(dzikirPlannerSummaryProvider);
+  return goal;
+}
+
+Future<void> createDzikirTodoAction(
+  WidgetRef ref, {
+  required String collectionId,
+  required String dhikrItemId,
+  required String sessionTime,
+  required int targetCount,
+  required List<int> daysOfWeek,
+  String? name,
+}) async {
+  final notifier = ref.read(createDzikirTodoProvider.notifier);
+  notifier.updateState(const AsyncValue.loading());
+  try {
+    final goal = await ensureDailyPlannerGoalAction(ref);
+    final input = DzikirTodoInput(
+      goalId: goal.id,
+      collectionId: collectionId,
+      dhikrItemId: dhikrItemId,
+      sessionTime: sessionTime,
+      targetCount: targetCount,
+      daysOfWeek: daysOfWeek,
+      name: name,
+    );
+
+    await ref.read(tasbihRepositoryProvider).createDzikirTodo(input);
+    notifier.updateState(const AsyncValue.data(null));
+    ref.invalidate(dailyDzikirTodosProvider);
+    ref.invalidate(dzikirPlannerSummaryProvider);
+  } catch (e, stackTrace) {
+    notifier.updateState(AsyncValue.error(e, stackTrace));
+    rethrow;
+  }
+}
+
+Future<void> updateDzikirTodoAction(
+  WidgetRef ref, {
+  required String goalSessionId,
+  String? sessionTime,
+  int? targetCount,
+  List<int>? daysOfWeek,
+  bool? isActive,
+  String? name,
+  String? collectionId,
+  String? dhikrItemId,
+}) async {
+  final notifier = ref.read(updateDzikirTodoProvider.notifier);
+  notifier.updateState(const AsyncValue.loading());
+  try {
+    final repository = ref.read(tasbihRepositoryProvider);
+    await repository.updateDzikirTodo(
+      goalSessionId,
+      sessionTime: sessionTime,
+      targetCount: targetCount,
+      daysOfWeek: daysOfWeek,
+      isActive: isActive,
+      name: name,
+      collectionId: collectionId,
+      dhikrItemId: dhikrItemId,
+    );
+
+    notifier.updateState(const AsyncValue.data(null));
+    ref.invalidate(dailyDzikirTodosProvider);
+    ref.invalidate(dzikirPlannerSummaryProvider);
+  } catch (e, stackTrace) {
+    notifier.updateState(AsyncValue.error(e, stackTrace));
+    rethrow;
+  }
+}
+
+Future<void> deleteDzikirTodoAction(
+  WidgetRef ref, {
+  required String goalSessionId,
+}) async {
+  final notifier = ref.read(deleteDzikirTodoProvider.notifier);
+  notifier.updateState(const AsyncValue.loading());
+  try {
+    final repository = ref.read(tasbihRepositoryProvider);
+    await repository.deleteDzikirTodo(goalSessionId);
+    notifier.updateState(const AsyncValue.data(null));
+    ref.invalidate(dailyDzikirTodosProvider);
+    ref.invalidate(dzikirPlannerSummaryProvider);
+  } catch (e, stackTrace) {
+    notifier.updateState(AsyncValue.error(e, stackTrace));
     rethrow;
   }
 }

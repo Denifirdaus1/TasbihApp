@@ -30,11 +30,10 @@ class ReminderSettings {
     if (map['scheduled_time'] != null) {
       final timeStr = map['scheduled_time'] as String;
       final parts = timeStr.split(':');
-      if (parts.length == 2) {
-        time = TimeOfDay(
-          hour: int.parse(parts[0]),
-          minute: int.parse(parts[1]),
-        );
+      if (parts.length >= 2) {
+        final hour = int.tryParse(parts[0]) ?? 0;
+        final minute = int.tryParse(parts[1]) ?? 0;
+        time = TimeOfDay(hour: hour, minute: minute);
       }
     }
 

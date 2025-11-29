@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../tasbih/presentation/tasbih_collections_screen.dart';
-import 'blank_lingkaran_screen.dart';
+import 'dzikir_plan_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -16,7 +16,7 @@ class _HomeShellState extends State<HomeShell> {
 
   final _pages = const [
     TasbihCollectionsScreen(),
-    BlankLingkaranScreen(),
+    DzikirPlanScreen(),
     ProfileScreen(),
   ];
 
@@ -34,9 +34,9 @@ class _HomeShellState extends State<HomeShell> {
             label: 'Tasbih',
           ),
           NavigationDestination(
-            icon: Icon(Icons.groups_outlined),
-            selectedIcon: Icon(Icons.groups),
-            label: 'Lingkaran',
+            icon: Icon(Icons.fact_check_outlined),
+            selectedIcon: Icon(Icons.fact_check),
+            label: 'Todo List',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

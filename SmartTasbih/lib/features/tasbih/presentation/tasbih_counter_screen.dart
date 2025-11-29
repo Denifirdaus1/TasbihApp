@@ -8,16 +8,23 @@ import '../domain/dhikr_item.dart';
 import '../domain/tasbih_collection.dart';
 import '../presentation/tasbih_counter_controller.dart';
 import '../presentation/tasbih_providers.dart';
+import '../domain/streak_update.dart';
 
 class TasbihCounterScreen extends ConsumerStatefulWidget {
   const TasbihCounterScreen({
     super.key,
     required this.dhikrItem,
     required this.collection,
+    this.attachedGoalId,
+    this.attachedGoalTargetCount,
+    this.attachedGoalSessionId,
   });
 
   final DhikrItem dhikrItem;
   final TasbihCollection collection;
+  final String? attachedGoalId;
+  final int? attachedGoalTargetCount;
+  final String? attachedGoalSessionId;
 
   @override
   ConsumerState<TasbihCounterScreen> createState() =>
@@ -82,7 +89,10 @@ class _TasbihCounterScreenState extends ConsumerState<TasbihCounterScreen>
       userId: userId,
       collectionId: widget.collection.id,
       dhikrItemId: widget.dhikrItem.id,
-      targetCount: widget.dhikrItem.targetCount,
+      targetCount:
+          widget.attachedGoalTargetCount ?? widget.dhikrItem.targetCount,
+      planGoalId: widget.attachedGoalId,
+      goalSessionId: widget.attachedGoalSessionId,
     );
     _sessionParams = sessionParams;
 
@@ -137,6 +147,7 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
   bool _hasVibrator = false;
   bool _isSyncingBeforeExit = false;
   final GlobalKey _controlsAreaKey = GlobalKey();
+  ProviderSubscription<CounterState>? _streakSubscription;
 
   TasbihCollection get collection => widget.collection;
   DhikrItem get dhikrItem => widget.dhikrItem;
@@ -150,6 +161,20 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
   void initState() {
     super.initState();
     _checkVibrationSupport();
+    _streakSubscription = ref.listenManual<CounterState>(
+      tasbihCounterControllerProvider(sessionParams),
+      (previous, next) {
+        final update = next.streakUpdate;
+        if (update != null && update.shouldCelebrate) {
+          _showStreakCelebration(update);
+          ref
+              .read(
+                tasbihCounterControllerProvider(sessionParams).notifier,
+              )
+              .takeStreakUpdate();
+        }
+      },
+    );
   }
 
   void _checkVibrationSupport() {
@@ -162,9 +187,14 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
   }
 
   @override
+  void dispose() {
+    _streakSubscription?.close();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final counterState =
-        ref.watch(tasbihCounterUiStateProvider(sessionParams));
+    final counterState = ref.watch(tasbihCounterUiStateProvider(sessionParams));
 
     return PopScope(
       canPop: false,
@@ -177,54 +207,54 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
       },
       child: Scaffold(
         appBar: AppBar(
-        title: Text(collection.name),
-        backgroundColor: collectionColor.withValues(alpha: 0.1),
-        actions: [
-          // Show sync indicator when syncing
-          counterState.whenOrNull(
-                data: (state) => state.isSyncing
-                    ? const Padding(
-                        padding: EdgeInsets.only(right: 16),
-                        child: Center(
-                          child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      )
-                    : state.pendingCount > 0
-                    ? Padding(
-                        padding: const EdgeInsets.only(right: 16),
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.orange,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '+${state.pendingCount}',
-                              style: const TextStyle(
+          title: Text(collection.name),
+          backgroundColor: collectionColor.withValues(alpha: 0.1),
+          actions: [
+            // Show sync indicator when syncing
+            counterState.whenOrNull(
+                  data: (state) => state.isSyncing
+                      ? const Padding(
+                          padding: EdgeInsets.only(right: 16),
+                          child: Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
                                 color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                        ),
-                      )
-                    : null,
-              ) ??
-              const SizedBox(),
-        ],
-      ),
+                        )
+                      : state.pendingCount > 0
+                      ? Padding(
+                          padding: const EdgeInsets.only(right: 16),
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '+${state.pendingCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : null,
+                ) ??
+                const SizedBox(),
+          ],
+        ),
         body: counterState.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stack) => Center(child: Text('Error: $error')),
@@ -234,10 +264,7 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
     );
   }
 
-  Widget _buildCounterBody(
-    BuildContext context,
-    CounterState state,
-  ) {
+  Widget _buildCounterBody(BuildContext context, CounterState state) {
     final theme = Theme.of(context);
     final isCompleted = state.isCompleted;
     final progress = state.progress;
@@ -253,311 +280,313 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
           : null,
       child: Column(
         children: [
-        // Header with dzikr text
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: collectionColor.withValues(alpha: 0.1),
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
+          // Header with dzikr text
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: collectionColor.withValues(alpha: 0.1),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(24),
+                bottomRight: Radius.circular(24),
+              ),
             ),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: collectionColor.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  dhikrItem.text,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: collectionColor,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.flag, color: collectionColor, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Target: ${state.targetCount}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: collectionColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        // Progress section
-        Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              // Progress bar
-              Container(
-                height: 8,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: progress.clamp(0.0, 1.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isCompleted ? Colors.green : collectionColor,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${state.displayCount}',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: collectionColor,
-                    ),
-                  ),
-                  Text(
-                    '${state.targetCount}',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        // Counter display
-        Expanded(
-          child: Center(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                GestureDetector(
-                  onTap: !_isGlobalTapEnabled && !isCompleted
-                      ? () => _incrementCount(context, ref)
-                      : null,
-                  child: AnimatedBuilder(
-                    animation: pulseAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: pulseAnimation.value,
-                        child: Container(
-                          width: 200,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isCompleted
-                                ? Colors.green.withValues(alpha: 0.1)
-                                : collectionColor.withValues(alpha: 0.1),
-                            border: Border.all(
-                              color:
-                                  isCompleted ? Colors.green : collectionColor,
-                              width: 4,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                state.displayCount.toString(),
-                                style: theme.textTheme.headlineLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 56,
-                                  color: isCompleted
-                                      ? Colors.green
-                                      : collectionColor,
-                                ),
-                              ),
-                              Text(
-                                '/ ${state.targetCount}',
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: theme.textTheme.bodyLarge?.color
-                                      ?.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
                   ),
-                ),
-                const SizedBox(height: 32),
-                if (isCompleted) ...[
-                  Icon(Icons.check_circle, color: Colors.green, size: 48),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Selesai! 🎉',
+                  decoration: BoxDecoration(
+                    color: collectionColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    dhikrItem.text,
                     style: theme.textTheme.titleLarge?.copyWith(
-                      color: Colors.green,
                       fontWeight: FontWeight.bold,
+                      color: collectionColor,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Target dzikir hari ini telah tercapai',
-                    style: theme.textTheme.bodyMedium,
                     textAlign: TextAlign.center,
                   ),
-                ] else ...[
-                  Text(
-                    '${((progress * 100).round())}% Selesai',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.textTheme.titleMedium?.color?.withValues(
-                        alpha: 0.7,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.flag, color: collectionColor, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Target: ${state.targetCount}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: collectionColor,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ],
             ),
           ),
-        ),
 
-        // Control buttons
-        Padding(
-          key: _controlsAreaKey,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _isHapticEnabled = !_isHapticEnabled;
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: _isHapticEnabled
-                            ? collectionColor
-                            : theme.colorScheme.surface,
-                        foregroundColor: _isHapticEnabled
-                            ? Colors.white
-                            : theme.colorScheme.onSurface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: _isHapticEnabled ? 2 : 0,
-                      ),
-                      icon: Icon(
-                        _isHapticEnabled
-                            ? Icons.vibration
-                            : Icons.vibration_outlined,
-                      ),
-                      label: Text(
-                        _isHapticEnabled ? 'Getar ON' : 'Getar OFF',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+          // Progress section
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                // Progress bar
+                Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: progress.clamp(0.0, 1.0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isCompleted ? Colors.green : collectionColor,
+                        borderRadius: BorderRadius.circular(4),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _isGlobalTapEnabled = !_isGlobalTapEnabled;
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: _isGlobalTapEnabled
-                            ? collectionColor
-                            : theme.colorScheme.surface,
-                        foregroundColor: _isGlobalTapEnabled
-                            ? Colors.white
-                            : theme.colorScheme.onSurface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: _isGlobalTapEnabled ? 2 : 0,
-                      ),
-                      icon: Icon(
-                        _isGlobalTapEnabled
-                            ? Icons.touch_app
-                            : Icons.touch_app_outlined,
-                      ),
-                      label: Text(
-                        _isGlobalTapEnabled
-                            ? 'Tap Layar ON'
-                            : 'Tap Layar OFF',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${state.displayCount}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: collectionColor,
                       ),
                     ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // Control buttons row
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () =>
-                          _showTargetInputDialog(context, ref, state),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                    Text(
+                      '${state.targetCount}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      child: const Text('Ubah Target'),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: state.displayCount > 0
-                          ? () => _resetCount(context, ref)
-                          : null,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Reset'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+
+          // Counter display
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: !_isGlobalTapEnabled && !isCompleted
+                        ? () => _incrementCount(context, ref)
+                        : null,
+                    child: AnimatedBuilder(
+                      animation: pulseAnimation,
+                      builder: (context, child) {
+                        return Transform.scale(
+                          scale: pulseAnimation.value,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isCompleted
+                                  ? Colors.green.withValues(alpha: 0.1)
+                                  : collectionColor.withValues(alpha: 0.1),
+                              border: Border.all(
+                                color: isCompleted
+                                    ? Colors.green
+                                    : collectionColor,
+                                width: 4,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  state.displayCount.toString(),
+                                  style: theme.textTheme.headlineLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 56,
+                                        color: isCompleted
+                                            ? Colors.green
+                                            : collectionColor,
+                                      ),
+                                ),
+                                Text(
+                                  '/ ${state.targetCount}',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    color: theme.textTheme.bodyLarge?.color
+                                        ?.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  if (isCompleted) ...[
+                    Icon(Icons.check_circle, color: Colors.green, size: 48),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Selesai! 🎉',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Target dzikir hari ini telah tercapai',
+                      style: theme.textTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                  ] else ...[
+                    Text(
+                      '${((progress * 100).round())}% Selesai',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.textTheme.titleMedium?.color?.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          // Control buttons
+          Padding(
+            key: _controlsAreaKey,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _isHapticEnabled = !_isHapticEnabled;
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: _isHapticEnabled
+                              ? collectionColor
+                              : theme.colorScheme.surface,
+                          foregroundColor: _isHapticEnabled
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: _isHapticEnabled ? 2 : 0,
+                        ),
+                        icon: Icon(
+                          _isHapticEnabled
+                              ? Icons.vibration
+                              : Icons.vibration_outlined,
+                        ),
+                        label: Text(
+                          _isHapticEnabled ? 'Getar ON' : 'Getar OFF',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _isGlobalTapEnabled = !_isGlobalTapEnabled;
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: _isGlobalTapEnabled
+                              ? collectionColor
+                              : theme.colorScheme.surface,
+                          foregroundColor: _isGlobalTapEnabled
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: _isGlobalTapEnabled ? 2 : 0,
+                        ),
+                        icon: Icon(
+                          _isGlobalTapEnabled
+                              ? Icons.touch_app
+                              : Icons.touch_app_outlined,
+                        ),
+                        label: Text(
+                          _isGlobalTapEnabled
+                              ? 'Tap Layar ON'
+                              : 'Tap Layar OFF',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Control buttons row
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () =>
+                            _showTargetInputDialog(context, ref, state),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Ubah Target'),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: state.displayCount > 0
+                            ? () => _resetCount(context, ref)
+                            : null,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Reset'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _incrementCount(BuildContext context, WidgetRef ref) {
@@ -568,7 +597,8 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
       tasbihCounterControllerProvider(sessionParams),
     );
 
-    final willComplete = !currentState.isCompleted &&
+    final willComplete =
+        !currentState.isCompleted &&
         currentState.displayCount + 1 >= currentState.targetCount;
 
     _triggerHaptic(strong: willComplete);
@@ -686,7 +716,7 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
     final counterState = ref.read(
       tasbihCounterControllerProvider(sessionParams),
     );
-    if (counterState.pendingCount <= 0) {
+    if (counterState.pendingCount == 0) {
       return;
     }
     _isSyncingBeforeExit = true;
@@ -697,6 +727,111 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
     } finally {
       _isSyncingBeforeExit = false;
     }
+  }
+
+  Future<void> _showStreakCelebration(StreakUpdate update) async {
+    if (!mounted) return;
+
+    final theme = Theme.of(context);
+    String title;
+    String subtitle;
+    IconData icon;
+    Color accent;
+
+    switch (update.event) {
+      case 'started':
+        title = 'Streak dimulai!';
+        subtitle = 'Kamu mencapai 100 dzikir hari ini. Streak ${update.currentStreak} hari.';
+        icon = Icons.local_fire_department;
+        accent = Colors.orange;
+        break;
+      case 'continued':
+        title = 'Streak berlanjut!';
+        subtitle = 'Pertahankan! Streak ${update.currentStreak} hari.';
+        icon = Icons.whatshot;
+        accent = Colors.deepOrange;
+        break;
+      case 'frozen_saved':
+        title = 'Streak terselamatkan!';
+        subtitle = 'Beku 1 hari tapi masih aman di ${update.currentStreak} hari.';
+        icon = Icons.ac_unit;
+        accent = Colors.cyan;
+        break;
+      default:
+        return;
+    }
+
+    await showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'streak-celebration',
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return const SizedBox.shrink();
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutBack,
+          reverseCurve: Curves.easeIn,
+        );
+
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: curved,
+            child: AlertDialog(
+              backgroundColor: accent.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.6, end: 1.0),
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.elasticOut,
+                    builder: (context, value, child) {
+                      return Transform.scale(
+                        scale: value,
+                        child: child,
+                      );
+                    },
+                    child: CircleAvatar(
+                      radius: 36,
+                      backgroundColor: accent.withValues(alpha: 0.12),
+                      child: Icon(icon, size: 42, color: accent),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    title,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Rekor terbaik: ${update.longestStreak} hari',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   bool _shouldHandleGlobalTap(Offset globalPosition) {
@@ -716,7 +851,8 @@ class _CounterBodyState extends ConsumerState<_CounterBody> {
       return false;
     }
     final topLeft = renderBox.localToGlobal(Offset.zero);
-    final bottomRight = topLeft + Offset(renderBox.size.width, renderBox.size.height);
+    final bottomRight =
+        topLeft + Offset(renderBox.size.width, renderBox.size.height);
     return globalPosition.dx >= topLeft.dx &&
         globalPosition.dx <= bottomRight.dx &&
         globalPosition.dy >= topLeft.dy &&

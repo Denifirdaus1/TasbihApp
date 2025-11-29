@@ -10,9 +10,18 @@ import '../presentation/tasbih_counter_screen.dart';
 import 'tasbih_providers.dart';
 
 class TasbihCollectionDetailScreen extends ConsumerStatefulWidget {
-  const TasbihCollectionDetailScreen({super.key, required this.collection});
+  const TasbihCollectionDetailScreen({
+    super.key,
+    required this.collection,
+    this.attachedGoalId,
+    this.attachedGoalTargetCount,
+    this.attachedGoalSessionId,
+  });
 
   final TasbihCollection collection;
+  final String? attachedGoalId;
+  final int? attachedGoalTargetCount;
+  final String? attachedGoalSessionId;
 
   @override
   ConsumerState<TasbihCollectionDetailScreen> createState() =>
@@ -75,6 +84,13 @@ class _TasbihCollectionDetailScreenState
 
             return Column(
               children: [
+                if (widget.attachedGoalId != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _AttachedPlanBanner(
+                      targetCount: widget.attachedGoalTargetCount,
+                    ),
+                  ),
                 _CollectionHeader(collection: _collection),
                 Expanded(
                   child: ListView.builder(
@@ -90,6 +106,11 @@ class _TasbihCollectionDetailScreenState
                               builder: (context) => TasbihCounterScreen(
                                 dhikrItem: item,
                                 collection: _collection,
+                                attachedGoalId: widget.attachedGoalId,
+                                attachedGoalTargetCount:
+                                    widget.attachedGoalTargetCount,
+                                attachedGoalSessionId:
+                                    widget.attachedGoalSessionId,
                               ),
                             ),
                           );
@@ -349,6 +370,57 @@ class _CollectionHeader extends StatelessWidget {
       case TasbihCollectionType.free:
         return 'Bebas';
     }
+  }
+}
+
+class _AttachedPlanBanner extends StatelessWidget {
+  const _AttachedPlanBanner({this.targetCount});
+
+  final int? targetCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: theme.colorScheme.primary.withValues(alpha: 0.08),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+            ),
+            child: Icon(Icons.flag, color: theme.colorScheme.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Terhubung ke Dzikir Plan',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Target harian: ${targetCount ?? '-'}x dzikir',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
